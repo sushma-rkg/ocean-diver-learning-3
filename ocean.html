@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ocean Diver</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #1a0020; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+window.addEventListener('resize', () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+});
+
+// Mouse / touch target
+let targetX = W / 2;
+let targetY = H / 2;
+
+window.addEventListener('mousemove', e => { targetX = e.clientX; targetY = e.clientY; });
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  targetX = e.touches[0].clientX;
+  targetY = e.touches[0].clientY;
+}, { passive: false });
+
+// Diver
+const diver = { x: W / 2, y: H / 2, facingRight: true };
+
+// Bubbles
+const bubbles = [];
+function spawnBubble() {
+  bubbles.push({
+    x: diver.x + (Math.random() - 0.5) * 10,
+    y: diver.y - 18,
+    r: 2 + Math.random() * 4,
+    speed: 0.4 + Math.random() * 0.6,
+    alpha: 0.7 + Math.random() * 0.3,
+    wobble: Math.random() * Math.PI * 2,
+  });
+}
+let bubbleTimer = 0;
+
+// Fish
+function makeFish(i) {
+  const colors = ['#ff6ec7', '#ff9de2', '#ffb3ec'];
+  return {
+    x: Math.random() * W,
+    y: 80 + Math.random() * (H - 160),
+    speed: 0.6 + Math.random() * 0.8,
+    dir: Math.random() < 0.5 ? 1 : -1,
+    color: colors[i % colors.length],
+    size: 14 + Math.random() * 10,
+    wobble: Math.random() * Math.PI * 2,
+  };
+}
+const fish = [makeFish(0), makeFish(1), makeFish(2)];
+
+// Draw ocean background
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#ffb3ec');
+  grad.addColorStop(0.4, '#e060b0');
+  grad.addColorStop(1, '#5a0040');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Caustic shimmer lines near top
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  for (let i = 0; i < 12; i++) {
+    const x = (Date.now() / 3000 * 60 + i * (W / 12)) % W;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 30, H * 0.3);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Draw seaweed
+function drawSeaweed(x) {
+  ctx.save();
+  const t = Date.now() / 1000;
+  ctx.strokeStyle = '#8b1a6b';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const segments = 6;
+  let cx = x, cy = H;
+  ctx.moveTo(cx, cy);
+  for (let i = 0; i < segments; i++) {
+    const sway = Math.sin(t + i * 0.8) * 8;
+    cx += sway;
+    cy -= 18;
+    ctx.lineTo(cx, cy);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Draw a fish
+function drawFish(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  if (f.dir < 0) ctx.scale(-1, 1);
+
+  const s = f.size;
+  // Body
+  ctx.beginPath();
+  ctx.ellipse(0, 0, s, s * 0.5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = f.color;
+  ctx.fill();
+
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(-s, 0);
+  ctx.lineTo(-s - s * 0.7, -s * 0.5);
+  ctx.lineTo(-s - s * 0.7, s * 0.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye
+  ctx.beginPath();
+  ctx.arc(s * 0.5, -s * 0.1, s * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s * 0.52, -s * 0.1, s * 0.06, 0, Math.PI * 2);
+  ctx.fillStyle = '#333';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Draw stick-figure diver
+function drawDiver(x, y, facingRight) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (!facingRight) ctx.scale(-1, 1);
+
+  const col = '#fff';
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Tank (rectangle on back)
+  ctx.fillStyle = '#aaa';
+  ctx.fillRect(-14, -10, 6, 16);
+
+  // Head
+  ctx.beginPath();
+  ctx.arc(0, -22, 8, 0, Math.PI * 2);
+  ctx.strokeStyle = col;
+  ctx.stroke();
+
+  // Mask visor
+  ctx.beginPath();
+  ctx.arc(0, -22, 8, -0.5, Math.PI + 0.5);
+  ctx.fillStyle = 'rgba(150,230,255,0.4)';
+  ctx.fill();
+
+  // Body
+  ctx.beginPath();
+  ctx.moveTo(0, -14);
+  ctx.lineTo(0, 8);
+  ctx.strokeStyle = col;
+  ctx.stroke();
+
+  // Arms — angled forward to look like swimming
+  ctx.beginPath();
+  ctx.moveTo(0, -8);
+  ctx.lineTo(14, -2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -4);
+  ctx.lineTo(-10, 2);
+  ctx.stroke();
+
+  // Legs / fins
+  ctx.beginPath();
+  ctx.moveTo(0, 8);
+  ctx.lineTo(8, 20);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, 8);
+  ctx.lineTo(-4, 20);
+  ctx.stroke();
+
+  // Fins on feet
+  ctx.beginPath();
+  ctx.moveTo(8, 20);
+  ctx.lineTo(18, 18);
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-4, 20);
+  ctx.lineTo(-12, 18);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Draw a bubble
+function drawBubble(b) {
+  ctx.save();
+  ctx.globalAlpha = b.alpha;
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function update() {
+  const t = Date.now() / 1000;
+
+  // Move diver toward target
+  const dx = targetX - diver.x;
+  const dy = targetY - diver.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > 2) {
+    diver.x += dx * 0.03;
+    diver.y += dy * 0.03;
+    diver.facingRight = dx > 0;
+  }
+
+  // Spawn bubbles
+  bubbleTimer++;
+  if (bubbleTimer % 8 === 0) spawnBubble();
+
+  // Update bubbles
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i];
+    b.wobble += 0.05;
+    b.x += Math.sin(b.wobble) * 0.5;
+    b.y -= b.speed;
+    b.alpha -= 0.003;
+    if (b.alpha <= 0 || b.y < -10) bubbles.splice(i, 1);
+  }
+
+  // Move fish
+  for (const f of fish) {
+    f.wobble += 0.04;
+    f.y += Math.sin(f.wobble) * 0.3;
+    f.x += f.speed * f.dir;
+    if (f.x > W + 40) { f.x = -40; }
+    if (f.x < -40) { f.x = W + 40; }
+  }
+}
+
+function draw() {
+  drawBackground();
+
+  // Seaweed along the bottom
+  for (let sx = 60; sx < W; sx += 90) drawSeaweed(sx);
+
+  // Fish
+  for (const f of fish) drawFish(f);
+
+  // Bubbles
+  for (const b of bubbles) drawBubble(b);
+
+  // Diver
+  drawDiver(diver.x, diver.y, diver.facingRight);
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
